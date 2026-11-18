@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SyncLocker test console</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; }
+  fieldset { margin-bottom: 16px; }
+  input, select, button { margin: 4px 4px 4px 0; padding: 4px 8px; }
+  pre { background: #f4f4f4; padding: 8px; overflow-x: auto; min-height: 60px; }
+  .muted { color: #666; font-size: 13px; }
+</style>
+</head>
+<body>
+<h2>SyncLocker test console</h2>
+<p class="muted">Testing front end only. It calls the same REST API that any client would use.</p>
+
+<fieldset>
+  <legend>1. Account</legend>
+  <input id="email" placeholder="email" value="user1@example.com">
+  <input id="password" type="password" placeholder="password (8+ chars)" value="password123">
+  <button onclick="register()">Register</button>
+  <button onclick="login()">Login</button>
+  <div class="muted">Token: <span id="tokenState">none</span></div>
+</fieldset>
+
+<fieldset>
+  <legend>2. Sessions and availability</legend>
+  <input id="locationId" value="loc_demo">
+  <button onclick="listSessions()">List sessions</button><br>
+  <input id="sessionId" placeholder="session id (from list)" value="ses_demo_day">
+  <button onclick="availability()">Check availability</button>
+</fieldset>
+
+<fieldset>
+  <legend>3. Hold a locker</legend>
+  <select id="size"><option>small</option><option>medium</option><option selected>large</option></select>
+  <input id="idemKey" size="38" placeholder="Idempotency-Key">
+  <button onclick="newKey()">New key</button>
+  <button onclick="createHold()">Create hold</button>
+  <div class="muted">Click Create hold twice with the same key: the second call returns the same hold, not a new one.</div>
+  <input id="holdId" placeholder="hold id">
+  <button onclick="getHold()">Get hold</button>
+</fieldset>
+
+<fieldset>
+  <legend>4. My reservations</legend>
+  <button onclick="myReservations()">List my reservations</button>
+</fieldset>
+
+<pre id="out">Response appears here.</pre>
+
+<script>
+let token = null;
+const out = document.getElementById('out');
+const val = id => document.getElementById(id).value;
+
+function newKey() { document.getElementById('idemKey').value = crypto.randomUUID(); }
+newKey();
+
+async function call(method, path, body, extraHeaders) {
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, extraHeaders || {});
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const text = await res.text();
+  let data = text;
+  try { data = JSON.parse(text); } catch (e) {}
+  out.textContent = method + ' ' + path + '\nHTTP ' + res.status + '\n' + (typeof data === 'string' ? data : JSON.stringify(data, null, 2));
+  return { status: res.status, data };
+}
+
+async function register() { await call('POST', '/auth/register', { email: val('email'), password: val('password') }); }
+async function login() {
+  const r = await call('POST', '/auth/login', { email: val('email'), password: val('password') });
+  token = r.status === 200 ? r.data.access_token : null;
+  document.getElementById('tokenState').textContent = token ? 'set' : 'none';
+}
+async function listSessions() { await call('GET', '/locations/' + encodeURIComponent(val('locationId')) + '/sessions'); }
+async function availability() { await call('GET', '/sessions/' + encodeURIComponent(val('sessionId')) + '/availability'); }
+async function createHold() {
+  const r = await call('POST', '/sessions/' + encodeURIComponent(val('sessionId')) + '/holds',
+    { size: val('size') }, { 'Idempotency-Key': val('idemKey') });
+  if (r.status === 201) document.getElementById('holdId').value = r.data.hold_id;
+}
+async function getHold() { await call('GET', '/holds/' + encodeURIComponent(val('holdId'))); }
+async function myReservations() { await call('GET', '/me/reservations'); }
+</script>
+</body>
+</html>
